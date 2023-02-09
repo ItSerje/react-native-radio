@@ -16,6 +16,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 
+const buffer = 2.5;
+
 const App = () => {
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const [queue, setQueue] = useState<Track[]>([]);
@@ -23,17 +25,21 @@ const App = () => {
 
   const playerState = usePlaybackState();
 
+  const setup = async () => {
+    setIsPlayerReady(false);
+    let isSetup = await SetupService();
+
+    const queue = await TrackPlayer.getQueue();
+    if (isSetup && queue.length <= 0) {
+      await QueueInitialTracksService();
+    }
+
+    setIsPlayerReady(isSetup);
+  };
+
   const loadPlaylist = async () => {
     const queue = await TrackPlayer.getQueue();
     setQueue(queue);
-  };
-
-  const handlePlayPress = async () => {
-    if ((await TrackPlayer.getState()) == State.Playing) {
-      TrackPlayer.pause();
-    } else {
-      TrackPlayer.play();
-    }
   };
 
   const setTrackInfo = async () => {
@@ -48,18 +54,29 @@ const App = () => {
     }
   };
 
-  useEffect(() => {
-    async function setup() {
-      let isSetup = await SetupService();
-
-      const queue = await TrackPlayer.getQueue();
-      if (isSetup && queue.length <= 0) {
-        await QueueInitialTracksService();
-      }
-
-      setIsPlayerReady(isSetup);
+  const seekToEndMinusBuffer = async (buffer: number) => {
+    const bufferedPosition = await TrackPlayer.getBufferedPosition();
+    if (bufferedPosition - buffer > buffer) {
+      await TrackPlayer.seekTo(bufferedPosition - buffer);
+    } else {
+      await TrackPlayer.seekTo(bufferedPosition);
     }
+  };
 
+  const handlePlayPress = async () => {
+    if ((await TrackPlayer.getState()) == State.Playing) {
+      TrackPlayer.pause();
+    } else {
+      const current = await TrackPlayer.getCurrentTrack();
+      if (current) {
+        await TrackPlayer.skip(current);
+      }
+      await TrackPlayer.play();
+      await seekToEndMinusBuffer(buffer);
+    }
+  };
+
+  useEffect(() => {
     setup();
   }, []);
 
@@ -73,7 +90,7 @@ const App = () => {
     setTrackInfo();
   }, [isPlayerReady]);
 
-  useTrackPlayerEvents([Event.PlaybackTrackChanged], event => {
+  useTrackPlayerEvents([Event.PlaybackTrackChanged], _event => {
     setTrackInfo();
   });
 
